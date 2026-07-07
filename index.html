@@ -1,286 +1,98 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OBS Live Translator</title>
-
-<style>
-html, body{
-    margin:0;
-    padding:0;
-    width:100%;
-    height:100%;
-    background:transparent;
-    overflow:hidden;
-    font-family:Arial,Helvetica,sans-serif;
-}
-
-#translator-widget{
-    width:100%;
-    height:100%;
-    display:flex;
-    flex-direction:column;
-    justify-content:flex-end;
-    align-items:center;
-    padding-bottom:60px;
-    box-sizing:border-box;
-}
-
-#device-select{
-    margin-bottom:20px;
-    padding:10px;
-    font-size:16px;
-    background:#222;
-    color:#fff;
-    border:2px solid #fff;
-    border-radius:6px;
-    cursor:pointer;
-}
-
-#output-text{
-    margin:0;
-    font-size:36px;
-    font-weight:800;
-    color:white;
-    text-align:center;
-    -webkit-text-stroke:2px black;
-    text-shadow:0 4px 8px rgba(0,0,0,.7);
-    opacity:1;
-    transition:.35s;
-}
-</style>
+    <meta charset="UTF-8">
+    <title>VYSÍLAČ - Překladač na pozadí</title>
+    <style>
+        body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
+        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; }
+        #status { margin-top: 20px; font-size: 20px; color: #bbb; }
+    </style>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
-
 <body>
 
-<div id="translator-widget">
+    <h1>Překladač pro OBS (Ovládací okno)</h1>
+    <p>Po kliknutí na tlačítko můžeš toto okno minimalizovat na lištu.</p>
+    <button id="start-btn">SPUSTIT NASLOUCHÁNÍ</button>
+    <div id="status">Stav: Čekám na spuštění...</div>
 
-<select id="device-select">
-<option value="">-- VYBER MIKROFON A KLIKNI SEM --</option>
-</select>
+    <script>
+        const startBtn = document.getElementById('start-btn');
+        const statusEl = document.getElementById('status');
+        
+        let peer;
+        let conn;
+        let recognition;
+        let isRunning = false;
 
-<p id="output-text">
-Načítám...
-</p>
+        // Inicializace spojení s OBS widgetem
+        // Použijeme fixní ID, aby se okna vždy našla
+        peer = new Peer('moje-unikatni-id-prekladace-vysilac');
 
-</div>
-
-<script>
-
-const outputText=document.getElementById("output-text");
-const select=document.getElementById("device-select");
-
-let recognition=null;
-let running=false;
-let fadeTimeout;
-
-console.log("SpeechRecognition =",window.SpeechRecognition);
-console.log("webkitSpeechRecognition =",window.webkitSpeechRecognition);
-
-if(!window.SpeechRecognition && !window.webkitSpeechRecognition){
-
-    outputText.innerHTML=
-    "❌ OBS nepodporuje SpeechRecognition.<br><br>Pokud to v Chrome funguje a zde ne, problém není v HTML.";
-
-}else{
-
-loadDevices();
-
-}
-
-async function loadDevices(){
-
-    try{
-
-        await navigator.mediaDevices.getUserMedia({audio:true});
-
-        const devices=await navigator.mediaDevices.enumerateDevices();
-
-        const mics=devices.filter(d=>d.kind==="audioinput");
-
-        mics.forEach(device=>{
-
-            const option=document.createElement("option");
-
-            option.value=device.deviceId;
-
-            option.text=device.label || "Mikrofon";
-
-            select.appendChild(option);
-
+        peer.on('open', (id) => {
+            statusEl.innerText = "Stav: Systém připraven. Klikni na Spustit.";
         });
 
-        outputText.innerText="Vyber mikrofon nahoře.";
+        // Pokus o připojení k OBS (přijímači)
+        function connectToOBS() {
+            conn = peer.connect('moje-unikatni-id-prekladace-prijimac');
+            conn.on('open', () => {
+                statusEl.innerText = "Stav: Spojeno s OBS! Můžeš minimalizovat okno.";
+            });
+            conn.on('close', () => {
+                statusEl.innerText = "Stav: OBS odpojeno, zkouším se znovu spojit...";
+                setTimeout(connectToOBS, 2000);
+            });
+        }
 
-    }catch(e){
+        async function fetchTranslation(text) {
+            if (!text.trim()) return null;
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=sk&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                return data[0].map(item => item[0]).join('');
+            } catch (e) { return null; }
+        }
 
-        outputText.innerText="Nelze načíst mikrofony: "+e.message;
+        startBtn.addEventListener('click', () => {
+            if (isRunning) return;
+            isRunning = true;
+            startBtn.style.display = 'none';
+            statusEl.innerText = "Připojuji se k OBS...";
+            
+            connectToOBS();
 
-    }
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SR();
+            recognition.lang = 'sk-SK';
+            recognition.continuous = true;
+            recognition.interimResults = true;
 
-}
-
-function fade(){
-
-    clearTimeout(fadeTimeout);
-
-    outputText.style.opacity=1;
-
-    fadeTimeout=setTimeout(()=>{
-
-        outputText.style.opacity=0;
-
-    },3000);
-
-}
-
-async function translate(text){
-
-    if(!text.trim()) return null;
-
-    try{
-
-        const url=`https://translate.googleapis.com/translate_a/single?client=gtx&sl=sk&tl=en&dt=t&q=${encodeURIComponent(text)}`;
-
-        const response=await fetch(url);
-
-        const json=await response.json();
-
-        return json[0].map(x=>x[0]).join("");
-
-    }catch(e){
-
-        return null;
-
-    }
-
-}
-
-select.onchange=async()=>{
-
-    if(running) return;
-
-    if(select.value==="") return;
-
-    running=true;
-
-    select.style.display="none";
-
-    outputText.innerText="Inicializuji...";
-
-    try{
-
-        await navigator.mediaDevices.getUserMedia({
-
-            audio:{
-                deviceId:{
-                    exact:select.value
+            recognition.onresult = async (event) => {
+                let interim = ''; let final = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) final += event.results[i][0].transcript;
+                    else interim += event.results[i][0].transcript;
                 }
-            }
+                
+                const text = final || interim;
+                if (text.trim().length > 0) {
+                    const trans = await fetchTranslation(text);
+                    if (trans && conn && conn.open) {
+                        // POŠLEME TEXT PŘES INTERNET DO OBS
+                        conn.send(trans);
+                    }
+                }
+            };
 
+            recognition.onend = () => {
+                if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 400);
+            };
+
+            recognition.start();
         });
-
-        const SR=window.SpeechRecognition || window.webkitSpeechRecognition;
-
-        recognition=new SR();
-
-        recognition.lang="sk-SK";
-        recognition.continuous=true;
-        recognition.interimResults=true;
-
-        recognition.onstart=()=>{
-
-            console.log("SpeechRecognition START");
-
-        };
-
-        recognition.onerror=(e)=>{
-
-            console.log("Speech ERROR",e);
-
-            outputText.innerText="Speech Error: "+e.error;
-
-        };
-
-        recognition.onresult=async(event)=>{
-
-            let interim="";
-            let final="";
-
-            for(let i=event.resultIndex;i<event.results.length;i++){
-
-                if(event.results[i].isFinal){
-
-                    final+=event.results[i][0].transcript;
-
-                }else{
-
-                    interim+=event.results[i][0].transcript;
-
-                }
-
-            }
-
-            const text=final || interim;
-
-            if(text.length){
-
-                const translated=await translate(text);
-
-                if(translated){
-
-                    outputText.innerText=translated;
-
-                    fade();
-
-                }
-
-            }
-
-        };
-
-        recognition.onend=()=>{
-
-            console.log("Speech END");
-
-            if(running){
-
-                setTimeout(()=>{
-
-                    try{
-
-                        recognition.start();
-
-                    }catch(e){}
-
-                },300);
-
-            }
-
-        };
-
-        recognition.start();
-
-        outputText.innerText="Naslouchám...";
-
-        fade();
-
-    }catch(e){
-
-        outputText.innerText=e.message;
-
-        console.log(e);
-
-        select.style.display="block";
-
-        running=false;
-
-    }
-
-}
-
-</script>
-
+    </script>
 </body>
 </html>

@@ -2,19 +2,19 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>VYSÍLAČ - Překladač na pozadí</title>
+    <title>VYSÍLAČ - Automatické propojení s Kickbotem</title>
     <style>
         body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; }
+        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; margin-top: 15px; }
         #status { margin-top: 20px; font-size: 20px; color: #bbb; }
     </style>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
-    <h1>Překladač pro OBS (Ovládací okno)</h1>
-    <p>Po kliknutí na tlačítko můžeš toto okno minimalizovat na lištu.</p>
-    <button id="start-btn">SPUSTIT NASLOUCHÁNÍ</button>
+    <h1>Překladač pro Kickbot widget</h1>
+    <p>Stačí kliknout na tlačítko níže. Vše se propojí automaticky bez opisování kódů.</p>
+    <button id="start-btn">SPUSTIT A PROPOJIT WIDGET</button>
     <div id="status">Stav: Čekám na spuštění...</div>
 
     <script>
@@ -26,25 +26,12 @@
         let recognition;
         let isRunning = false;
 
-        // Inicializace spojení s OBS widgetem
-        // Použijeme fixní ID, aby se okna vždy našla
-        peer = new Peer('moje-unikatni-id-prekladace-vysilac');
+        // Unikátní ID pro vysílač
+        peer = new Peer('Chrimsie3003Maiklson-Chrome-Vysilac');
 
-        peer.on('open', (id) => {
-            statusEl.innerText = "Stav: Systém připraven. Klikni na Spustit.";
+        peer.on('open', () => {
+            statusEl.innerText = "Stav: Připraven. Klikni na tlačítko.";
         });
-
-        // Pokus o připojení k OBS (přijímači)
-        function connectToOBS() {
-            conn = peer.connect('moje-unikatni-id-prekladace-prijimac');
-            conn.on('open', () => {
-                statusEl.innerText = "Stav: Spojeno s OBS! Můžeš minimalizovat okno.";
-            });
-            conn.on('close', () => {
-                statusEl.innerText = "Stav: OBS odpojeno, zkouším se znovu spojit...";
-                setTimeout(connectToOBS, 2000);
-            });
-        }
 
         async function fetchTranslation(text) {
             if (!text.trim()) return null;
@@ -58,11 +45,26 @@
 
         startBtn.addEventListener('click', () => {
             if (isRunning) return;
+            statusEl.innerText = "Připojuji se ke Kickbot widgetu...";
+            
+            // Tady se natvrdo připojíme na Kickbot přijímač
+            conn = peer.connect('Chrimsie3003Maiklson-Kickbot-Prijimac');
+            
+            conn.on('open', () => {
+                statusEl.innerText = "Stav: SPOJENO S KICKBOTEM! Můžeš minimalizovat Chrome.";
+                startRecording();
+            });
+
+            conn.on('close', () => {
+                statusEl.innerText = "Stav: Spojení ztraceno, zkouším znovu...";
+                isRunning = false;
+                startBtn.style.display = 'inline-block';
+            });
+        });
+
+        function startRecording() {
             isRunning = true;
             startBtn.style.display = 'none';
-            statusEl.innerText = "Připojuji se k OBS...";
-            
-            connectToOBS();
 
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SR();
@@ -81,8 +83,7 @@
                 if (text.trim().length > 0) {
                     const trans = await fetchTranslation(text);
                     if (trans && conn && conn.open) {
-                        // POŠLEME TEXT PŘES INTERNET DO OBS
-                        conn.send(trans);
+                        conn.send(trans); // POSÍLÁME PŘEKLAD DO KICKBOTU
                     }
                 }
             };
@@ -92,7 +93,7 @@
             };
 
             recognition.start();
-        });
+        }
     </script>
 </body>
 </html>

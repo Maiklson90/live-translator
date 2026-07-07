@@ -2,20 +2,20 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>VYSÍLAČ - Automatické propojení</title>
+    <title>VYSÍLAČ - Překladač na pozadí</title>
     <style>
         body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; margin-top: 15px; }
+        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; }
         #status { margin-top: 20px; font-size: 20px; color: #bbb; }
     </style>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
-    <h1>Překladač pro OBS</h1>
-    <p>Stačí kliknout na tlačítko níže a okna se propojí sama.</p>
-    <button id="start-btn">SPUSTIT A PROPOJIT S OBS</button>
-    <div id="status">Stav: Čekám na kliknutí...</div>
+    <h1>Překladač pro OBS (Ovládací okno)</h1>
+    <p>Po kliknutí na tlačítko můžeš toto okno minimalizovat na lištu.</p>
+    <button id="start-btn">SPUSTIT NASLOUCHÁNÍ</button>
+    <div id="status">Stav: Čekám na spuštění...</div>
 
     <script>
         const startBtn = document.getElementById('start-btn');
@@ -26,8 +26,25 @@
         let recognition;
         let isRunning = false;
 
-        // Vlastní pevné ID vysílače
-        peer = new Peer('Chrimsie3003Maiklson-vysilac');
+        // Inicializace spojení s OBS widgetem
+        // Použijeme fixní ID, aby se okna vždy našla
+        peer = new Peer('moje-unikatni-id-prekladace-vysilac');
+
+        peer.on('open', (id) => {
+            statusEl.innerText = "Stav: Systém připraven. Klikni na Spustit.";
+        });
+
+        // Pokus o připojení k OBS (přijímači)
+        function connectToOBS() {
+            conn = peer.connect('moje-unikatni-id-prekladace-prijimac');
+            conn.on('open', () => {
+                statusEl.innerText = "Stav: Spojeno s OBS! Můžeš minimalizovat okno.";
+            });
+            conn.on('close', () => {
+                statusEl.innerText = "Stav: OBS odpojeno, zkouším se znovu spojit...";
+                setTimeout(connectToOBS, 2000);
+            });
+        }
 
         async function fetchTranslation(text) {
             if (!text.trim()) return null;
@@ -41,26 +58,11 @@
 
         startBtn.addEventListener('click', () => {
             if (isRunning) return;
-            statusEl.innerText = "Hledám OBS a připojuji se...";
-            
-            // Automaticky se připojíme na pevné ID přijímače
-            conn = peer.connect('Chrimsie3003Maiklson-prijimac');
-            
-            conn.on('open', () => {
-                statusEl.innerText = "Stav: SPOJENO! Můžeš minimalizovat Chrome na lištu.";
-                startRecording();
-            });
-
-            conn.on('close', () => {
-                statusEl.innerText = "Stav: Spojení ztraceno, zkus kliknout znovu.";
-                isRunning = false;
-                startBtn.style.display = 'inline-block';
-            });
-        });
-
-        function startRecording() {
             isRunning = true;
             startBtn.style.display = 'none';
+            statusEl.innerText = "Připojuji se k OBS...";
+            
+            connectToOBS();
 
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SR();
@@ -79,6 +81,7 @@
                 if (text.trim().length > 0) {
                     const trans = await fetchTranslation(text);
                     if (trans && conn && conn.open) {
+                        // POŠLEME TEXT PŘES INTERNET DO OBS
                         conn.send(trans);
                     }
                 }
@@ -89,7 +92,7 @@
             };
 
             recognition.start();
-        }
+        });
     </script>
 </body>
 </html>

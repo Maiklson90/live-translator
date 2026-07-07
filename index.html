@@ -2,134 +2,159 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>Bypass Překladač</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBS Live Translator - GitHub Seamless</title>
     <style>
         body, html {
-            margin: 0; padding: 0; width: 100%; height: 100vh;
-            background-color: transparent !important;
-            overflow: hidden; font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;
+            /* Průhledné pozadí pro čisté vložení do OBS */
+            background-color: transparent !important; 
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
         }
-        #widget {
-            width: 100%; height: 100%; display: flex;
-            justify-content: center; align-items: flex-end;
-            padding-bottom: 60px; box-sizing: border-box; cursor: pointer;
+
+        #translator-widget {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end; /* Text dole */
+            align-items: center;
+            box-sizing: border-box;
+            padding-bottom: 60px;
+            cursor: pointer;
         }
+
+        #text-container {
+            width: 90%;
+            text-align: center;
+        }
+
         #output-text {
-            font-size: 36px; font-weight: 800; color: #ffffff;
-            -webkit-text-stroke: 2px #000000;
+            font-size: 36px;
+            font-weight: 800;
+            color: #ffffff; /* Bílé písmo */
+            
+            /* Nový vyhlazený černý obrys bez kostiček */
+            -webkit-text-stroke: 2px #000000; 
             text-shadow: 0px 4px 8px rgba(0, 0, 0, 0.7);
-            text-align: center; width: 90%; margin: 0;
-            transition: opacity 0.4s ease;
+            
+            margin: 0;
+            opacity: 1;
+            transition: opacity 0.4s ease-in-out;
         }
     </style>
 </head>
 <body>
 
-    <div id="widget">
-        <p id="output-text">KLIKNI SEM PRO START...</p>
+    <div id="translator-widget">
+        <div id="text-container">
+            <p id="output-text">Klikni sem přes 'Interagovat' pro spuštění překladu...</p>
+        </div>
     </div>
 
     <script>
-        const textEl = document.getElementById('output-text');
+        const widgetContainer = document.getElementById('translator-widget');
+        const outputText = document.getElementById('output-text');
+
+        let recognition;
+        let fadeTimeout;
         let isRunning = false;
 
-        // TENTO SKRIPT SE SPUSTÍ VE VIRTUÁLNÍM PROSTŘEDÍ
-        const workerCode = `
-            let recognition;
-            let fadeTimeout;
+        function startFadeTimeout() {
+            clearTimeout(fadeTimeout);
+            fadeTimeout = setTimeout(() => {
+                outputText.style.opacity = '0';
+            }, 3000); // Zmizne po 3 sekundách ticha
+        }
 
-            window.addEventListener('message', async (e) => {
-                if (e.data.type === 'START') {
-                    try {
-                        // Vynucení audio kontextu
-                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                        
-                        // Přímý pokus o vyvolání systémového okna pro mikrofon
-                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        
-                        const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-                        recognition = new SpeechRecognition();
-                        recognition.lang = 'sk-SK';
-                        recognition.continuous = true;
-                        recognition.interimResults = true;
+        async function fetchTranslation(text) {
+            if (!text.trim()) return null;
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=sk&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                return data[0].map(item => item[0]).join('');
+            } catch (e) {
+                console.error(e);
+                return null;
+            }
+        }
 
-                        recognition.onresult = async (event) => {
-                            let interim = ''; let final = '';
-                            for (let i = event.resultIndex; i < event.results.length; ++i) {
-                                if (event.results[i].isFinal) final += event.results[i][0].transcript;
-                                else interim += event.results[i][0].transcript;
-                            }
-                            const text = final || interim;
-                            if (text.trim()) {
-                                // Překlad
-                                const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=sk&tl=en&dt=t&q=' + encodeURIComponent(text);
-                                const res = await fetch(url);
-                                const data = await res.json();
-                                const trans = data[0].map(item => item[0]).join('');
-                                window.parent.postMessage({ type: 'TEXT', val: trans }, '*');
-                            }
-                        };
+        async function startWidget() {
+            if (isRunning) return; 
 
-                        recognition.onend = () => { recognition.start(); };
-                        recognition.onerror = (err) => { 
-                            window.parent.postMessage({ type: 'ERROR', val: err.error }, '*'); 
-                        };
+            outputText.innerText = "Inicializace mikrofonu...";
 
-                        recognition.start();
-                        window.parent.postMessage({ type: 'READY' }, '*');
-
-                    } catch (err) {
-                        window.parent.postMessage({ type: 'ERROR', val: err.message }, '*');
-                    }
+            try {
+                // Požádáme o mikrofon (GitHub má zelenou, hned to projde)
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+                
+                if (!SpeechRecognition) {
+                    outputText.innerText = "Chyba: Prohlížeč nepodporuje řečové API.";
+                    return;
                 }
-            });
-        `;
 
-        // Spuštění triku s iFramem v reálném čase, aby si OBS myslelo, že je to externí web
-        document.getElementById('widget').addEventListener('click', () => {
-            if (isRunning) return;
-            isRunning = true;
-            textEl.innerText = "Spouštím bezpečné audio rozhraní...";
+                recognition = new SpeechRecognition();
+                recognition.lang = 'sk-SK';
+                recognition.continuous = true;
+                recognition.interimResults = true; // Píše ihned, nečeká na konec věty
 
-            const blob = new Blob([`
-                <!DOCTYPE html>
-                <html>
-                <body>
-                <script>${workerCode}<\/script>
-                </body>
-                </html>
-            `], { type: 'text/html' });
-            
-            const iframe = document.createElement('iframe');
-            iframe.src = URL.createObjectURL(blob);
-            iframe.style.display = 'none';
-            // Natvrdo aplikujeme povolení mikrofonu pro tento virtuální iFrame
-            iframe.setAttribute('allow', 'microphone'); 
-            document.body.appendChild(iframe);
+                recognition.onresult = async (event) => {
+                    let interimTranscript = '';
+                    let finalTranscript = '';
 
-            iframe.onload = () => {
-                iframe.contentWindow.postMessage({ type: 'START' }, '*');
-            };
-        });
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        if (event.results[i].isFinal) {
+                            finalTranscript += event.results[i][0].transcript;
+                        } else {
+                            interimTranscript += event.results[i][0].transcript;
+                        }
+                    }
 
-        // Naslouchání odpovědí z virtuálního rozhraní
-        window.addEventListener('message', (e) => {
-            if (e.data.type === 'READY') {
-                textEl.innerText = "Naslouchám... Mluv slovensky.";
-                setTimeout(() => { textEl.style.opacity = '0'; }, 3000);
+                    const textToTranslate = finalTranscript || interimTranscript;
+
+                    if (textToTranslate.trim().length > 0) {
+                        const translatedEnglish = await fetchTranslation(textToTranslate);
+                        if (translatedEnglish) {
+                            outputText.innerText = translatedEnglish;
+                            outputText.style.opacity = '1';
+                            startFadeTimeout();
+                        }
+                    }
+                };
+
+                recognition.onend = () => {
+                    if (isRunning) {
+                        setTimeout(() => {
+                            try { recognition.start(); } catch(e) {}
+                        }, 400);
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    console.error(event.error);
+                    if (event.error === 'not-allowed') {
+                        outputText.innerText = "Chyba: Povol mikrofon v zámečku v Chrome!";
+                        isRunning = false;
+                    }
+                };
+
+                recognition.start();
+                isRunning = true;
+                outputText.innerText = "Naslouchám... Mluv slovensky.";
+                startFadeTimeout();
+
+            } catch (err) {
+                outputText.innerText = "Chyba: Prohlížeč odmítl audio stream.";
             }
-            if (e.data.type === 'TEXT') {
-                textEl.innerText = e.data.val;
-                textEl.style.opacity = '1';
-                clearTimeout(window.fade);
-                window.fade = setTimeout(() => { textEl.style.opacity = '0'; }, 3000);
-            }
-            if (e.data.type === 'ERROR') {
-                textEl.innerText = "Chyba systému: " + e.data.val + " (Zkontroluj ikonu mikrofonu u hodin ve Windows!)";
-                textEl.style.opacity = '1';
-                isRunning = false;
-            }
-        });
+        }
+
+        widgetContainer.addEventListener('click', startWidget);
     </script>
 </body>
 </html>

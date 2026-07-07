@@ -2,33 +2,27 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>VYSÍLAČ - Automatické propojení s Kickbotem</title>
+    <title>VYSÍLAČ - Ruční zadání kódu</title>
     <style>
         body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
         button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; margin-top: 15px; }
+        input { padding: 12px; font-size: 16px; width: 300px; text-align: center; border-radius: 5px; border: 1px solid #555; background: #222; color: white; }
         #status { margin-top: 20px; font-size: 20px; color: #bbb; }
     </style>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
-
     <h1>Překladač pro Kickbot widget</h1>
-    <p>Stačí kliknout na tlačítko níže. Vše se propojí automaticky.</p>
-    <button id="start-btn">SPUSTIT A PROPOJIT WIDGET</button>
-    <div id="status">Stav: Čekám na spuštění...</div>
+    <p>Zadej přesný zelený kód, který ti aktuálně svítí v OBS/Kickbotu:</p>
+    <input type="text" id="obs-code" placeholder="Chrimsie3003-prijimac-XXXX"><br>
+    <button id="start-btn">SPUSTIT A PROPOJIT</button>
+    <div id="status">Stav: Čekám na zadání kódu...</div>
 
     <script>
         const startBtn = document.getElementById('start-btn');
+        const codeInput = document.getElementById('obs-code');
         const statusEl = document.getElementById('status');
-        
-        let peer; let conn; let recognition; let isRunning = false;
-
-        // NOVÉ ID PRO VYSÍLAČ
-        peer = new Peer('ChrimsieStream-Chrome-Vysilac');
-
-        peer.on('open', () => {
-            statusEl.innerText = "Stav: Připraven. Klikni na tlačítko.";
-        });
+        let peer = new Peer(); let conn; let recognition; let isRunning = false;
 
         async function fetchTranslation(text) {
             if (!text.trim()) return null;
@@ -40,29 +34,21 @@
         }
 
         startBtn.addEventListener('click', () => {
-            if (isRunning) return;
-            statusEl.innerText = "Připojuji se ke Kickbot widgetu...";
+            const targetId = codeInput.value.trim();
+            if (!targetId) { alert("Nejdřív musíš opsat kód ze screenu!"); return; }
+            statusEl.innerText = "Připojuji se...";
             
-            // PŘIPOJENÍ NA NOVÉ ID PŘIJÍMAČE
-            conn = peer.connect('ChrimsieStream-Kickbot-Prijimac');
-            
+            conn = peer.connect(targetId);
             conn.on('open', () => {
-                statusEl.innerText = "Stav: SPOJENO S KICKBOTEM! Můžeš minimalizovat Chrome.";
+                statusEl.innerText = "Stav: SPOJENO! Můžeš minimalizovat Chrome.";
                 startRecording();
-            });
-
-            conn.on('close', () => {
-                statusEl.innerText = "Stav: Spojení ztraceno, zkouším znovu...";
-                isRunning = false;
-                startBtn.style.display = 'inline-block';
             });
         });
 
         function startRecording() {
-            isRunning = true; startBtn.style.display = 'none';
+            isRunning = true; startBtn.style.display = 'none'; codeInput.style.display = 'none';
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SR(); recognition.lang = 'sk-SK'; recognition.continuous = true; recognition.interimResults = true;
-
             recognition.onresult = async (event) => {
                 let interim = ''; let final = '';
                 for (let i = event.resultIndex; i < event.results.length; ++i) {

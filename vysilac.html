@@ -2,73 +2,71 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>VYSÍLAČ - Překladač na pozadí</title>
+    <title>VYSÍLAČ - Automatické spojení</title>
     <style>
         body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
-        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; }
+        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; margin-top: 15px; }
         #status { margin-top: 20px; font-size: 20px; color: #bbb; }
     </style>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 
-    <h1>Překladač pro OBS (Ovládací okno)</h1>
-    <p>Po kliknutí na tlačítko můžeš toto okno minimalizovat na lištu.</p>
-    <button id="start-btn">SPUSTIT NASLOUCHÁNÍ</button>
+    <h1>Překladač pro Kickbot widget</h1>
+    <p>Klikni na tlačítko níže. Spojení proběhne zcela automaticky.</p>
+    <button id="start-btn">SPUSTIT TRANSLATOR</button>
     <div id="status">Stav: Čekám na spuštění...</div>
 
     <script>
         const startBtn = document.getElementById('start-btn');
         const statusEl = document.getElementById('status');
         
-        let peer;
-        let conn;
-        let recognition;
-        let isRunning = false;
-
-        // Inicializace spojení s OBS widgetem
-        // Použijeme fixní ID, aby se okna vždy našla
-        peer = new Peer('moje-unikatni-id-prekladace-vysilac');
-
-        peer.on('open', (id) => {
-            statusEl.innerText = "Stav: Systém připraven. Klikni na Spustit.";
-        });
-
-        // Pokus o připojení k OBS (přijímači)
-        function connectToOBS() {
-            conn = peer.connect('moje-unikatni-id-prekladace-prijimac');
-            conn.on('open', () => {
-                statusEl.innerText = "Stav: Spojeno s OBS! Můžeš minimalizovat okno.";
-            });
-            conn.on('close', () => {
-                statusEl.innerText = "Stav: OBS odpojeno, zkouším se znovu spojit...";
-                setTimeout(connectToOBS, 2000);
-            });
-        }
+        let peer = new Peer('ChrimsieFix-Chrome-Vysilac');
+        let conn; let recognition; let isRunning = false;
 
         async function fetchTranslation(text) {
             if (!text.trim()) return null;
             const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=sk&tl=en&dt=t&q=${encodeURIComponent(text)}`;
             try {
-                const response = await fetch(url);
-                const data = await response.json();
+                const response = await fetch(url); const data = await response.json();
                 return data[0].map(item => item[0]).join('');
             } catch (e) { return null; }
         }
 
+        // Smyčka, která se zkouší připojovat, dokud se Kickbot nechytí
+        function autoConnect() {
+            statusEl.innerText = "Hledám Kickbot widget v OBS...";
+            conn = peer.connect('ChrimsieFix-Kickbot-Prijimac');
+            
+            conn.on('open', () => {
+                statusEl.innerText = "Stav: SPOJENO! Můžeš minimalizovat Chrome na lištu.";
+                startRecording();
+            });
+
+            conn.on('error', () => {
+                // Pokud Kickbot ještě neběží, zkusíme to znovu za 2 vteřiny
+                setTimeout(autoConnect, 2000);
+            });
+            
+            // Ochrana pro případ, že by se widget v OBS vypnul/refreshnul během streamu
+            conn.on('close', () => {
+                statusEl.innerText = "Stav: Spojení ztraceno, hledám widget znovu...";
+                setTimeout(autoConnect, 2000);
+            });
+        }
+
         startBtn.addEventListener('click', () => {
+            if (isRunning) return;
+            autoConnect();
+        });
+
+        function startRecording() {
             if (isRunning) return;
             isRunning = true;
             startBtn.style.display = 'none';
-            statusEl.innerText = "Připojuji se k OBS...";
-            
-            connectToOBS();
 
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognition = new SR();
-            recognition.lang = 'sk-SK';
-            recognition.continuous = true;
-            recognition.interimResults = true;
+            recognition = new SR(); recognition.lang = 'sk-SK'; recognition.continuous = true; recognition.interimResults = true;
 
             recognition.onresult = async (event) => {
                 let interim = ''; let final = '';
@@ -76,23 +74,16 @@
                     if (event.results[i].isFinal) final += event.results[i][0].transcript;
                     else interim += event.results[i][0].transcript;
                 }
-                
                 const text = final || interim;
                 if (text.trim().length > 0) {
                     const trans = await fetchTranslation(text);
-                    if (trans && conn && conn.open) {
-                        // POŠLEME TEXT PŘES INTERNET DO OBS
-                        conn.send(trans);
-                    }
+                    if (trans && conn && conn.open) { conn.send(trans); }
                 }
             };
 
-            recognition.onend = () => {
-                if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 400);
-            };
-
+            recognition.onend = () => { if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 400); };
             recognition.start();
-        });
+        }
     </script>
 </body>
 </html>

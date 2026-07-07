@@ -3,77 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OBS Live Translator - Device Selector</title>
+    <title>Live Translator</title>
     <style>
         body, html {
-            margin: 0; padding: 0; width: 100%; height: 100vh;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;
+            /* Průhledné pozadí bez nutnosti Chroma Key */
             background-color: transparent !important; 
-            overflow: hidden; font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
         }
+
         #translator-widget {
-            width: 100%; height: 100%; display: flex;
-            flex-direction: column; justify-content: flex-end; 
-            align-items: center; box-sizing: border-box; padding-bottom: 60px;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end; /* Text bude dole */
+            align-items: center;
+            box-sizing: border-box;
+            padding-bottom: 60px;
+            cursor: pointer;
         }
-        #text-container { width: 90%; text-align: center; }
+
+        #text-container {
+            width: 90%;
+            text-align: center;
+        }
+
         #output-text {
-            font-size: 36px; font-weight: 800; color: #ffffff; 
+            font-size: 36px;
+            font-weight: 800;
+            color: #ffffff; /* Bílé písmo */
+            
+            /* Moderní vyhlazený obrys písma (žádné kostičky) */
             -webkit-text-stroke: 2px #000000; 
             text-shadow: 0px 4px 8px rgba(0, 0, 0, 0.7);
-            margin: 0; opacity: 1; transition: opacity 0.4s ease-in-out;
-        }
-        /* Styl pro výběr mikrofonu, který po startu zmizí */
-        #device-select {
-            margin-bottom: 20px; padding: 10px; font-size: 16px;
-            z-index: 99999; background: #222; color: white; border: 2px solid white;
-            border-radius: 5px; cursor: pointer;
+            
+            margin: 0;
+            opacity: 1;
+            transition: opacity 0.4s ease-in-out;
         }
     </style>
 </head>
 <body>
 
     <div id="translator-widget">
-        <select id="device-select">
-            <option value="">-- VYBER SVŮJ MIKROFON A KLIKNI SEM PRO START --</option>
-        </select>
-        
         <div id="text-container">
-            <p id="output-text">Vyber nahoře mikrofon v okně Interagovat...</p>
+            <p id="output-text">Klikni sem pro start překladače...</p>
         </div>
     </div>
 
     <script>
-        const selectEl = document.getElementById('device-select');
+        const widgetContainer = document.getElementById('translator-widget');
         const outputText = document.getElementById('output-text');
 
         let recognition;
         let fadeTimeout;
         let isRunning = false;
 
-        // Načtení všech mikrofonů v PC hned při startu
-        async function loadDevices() {
-            try {
-                // Nejdřív si řekneme o obecné povolení, aby nám Windows ukázal názvy mikrofonů
-                await navigator.mediaDevices.getUserMedia({ audio: true });
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const audioDevices = devices.filter(device => device.kind === 'audioinput');
-
-                audioDevices.forEach(device => {
-                    const option = document.createElement('option');
-                    option.value = device.deviceId;
-                    option.text = device.label || `Mikrofon (${device.deviceId.slice(0,5)}...)`;
-                    selectEl.appendChild(option);
-                });
-            } catch (err) {
-                outputText.innerText = "Chyba načítání mikrofonů: " + err.message;
-            }
-        }
-
-        loadDevices();
-
         function startFadeTimeout() {
             clearTimeout(fadeTimeout);
-            fadeTimeout = setTimeout(() => { outputText.style.opacity = '0'; }, 3000);
+            fadeTimeout = setTimeout(() => {
+                outputText.style.opacity = '0';
+            }, 3000); // Skryje text po 3 sekundách ticha
         }
 
         async function fetchTranslation(text) {
@@ -83,61 +78,75 @@
                 const response = await fetch(url);
                 const data = await response.json();
                 return data[0].map(item => item[0]).join('');
-            } catch (e) { return null; }
+            } catch (e) {
+                return null;
+            }
         }
 
-        // Spustí se, jakmile vybereš mikrofon ze seznamu
-        selectEl.addEventListener('change', async () => {
-            const selectedDeviceId = selectEl.value;
-            if (!selectedDeviceId || isRunning) return;
+        function initSpeech() {
+            if (isRunning) return;
 
-            isRunning = true;
-            outputText.innerText = "Inicializace vybraného mikrofonu...";
-            selectEl.style.display = 'none'; // Schováme výběrové menu, aby nebylo na streamu
+            const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+            if (!SpeechRecognition) {
+                outputText.innerText = "Chyba: Prohlížeč nepodporuje rozpoznávání řeči.";
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.lang = 'sk-SK';
+            recognition.continuous = true;
+            // NASTAVENÍ: Píše okamžitě, nečeká na celou větu
+            recognition.interimResults = true; 
+
+            recognition.onresult = async (event) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+
+                const textToTranslate = finalTranscript || interimTranscript;
+
+                if (textToTranslate.trim().length > 0) {
+                    const translatedEnglish = await fetchTranslation(textToTranslate);
+                    if (translatedEnglish) {
+                        outputText.innerText = translatedEnglish;
+                        outputText.style.opacity = '1';
+                        startFadeTimeout();
+                    }
+                }
+            };
+
+            recognition.onend = () => {
+                if (isRunning) {
+                    setTimeout(() => { try { recognition.start(); } catch(e) {} }, 400);
+                }
+            };
+
+            recognition.onerror = (event) => {
+                if (event.error === 'not-allowed') {
+                    outputText.innerText = "Chyba: Mikrofon zablokován v nastavení.";
+                    isRunning = false;
+                }
+            };
 
             try {
-                // Vynutíme přesný mikrofon, který jsi zvolil
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { deviceId: { exact: selectedDeviceId } } 
-                });
-
-                const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-                recognition = new SpeechRecognition();
-                recognition.lang = 'sk-SK';
-                recognition.continuous = true;
-                recognition.interimResults = true;
-
-                recognition.onresult = async (event) => {
-                    let interimTranscript = ''; let finalTranscript = '';
-                    for (let i = event.resultIndex; i < event.results.length; ++i) {
-                        if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-                        else interimTranscript += event.results[i][0].transcript;
-                    }
-                    const textToTranslate = finalTranscript || interimTranscript;
-                    if (textToTranslate.trim().length > 0) {
-                        const translatedEnglish = await fetchTranslation(textToTranslate);
-                        if (translatedEnglish) {
-                            outputText.innerText = translatedEnglish;
-                            outputText.style.opacity = '1';
-                            startFadeTimeout();
-                        }
-                    }
-                };
-
-                recognition.onend = () => {
-                    if (isRunning) { setTimeout(() => { try { recognition.start(); } catch(e) {} }, 400); }
-                };
-
                 recognition.start();
-                outputText.innerText = "Naslouchám... Můžeš mluvit.";
+                isRunning = true;
+                outputText.innerText = "Naslouchám v reálném čase...";
                 startFadeTimeout();
-
-            } catch (err) {
-                outputText.innerText = "Chyba spuštění: " + err.message;
-                selectEl.style.display = 'block';
-                isRunning = false;
+            } catch (e) {
+                outputText.innerText = "Chyba při startu: " + e.message;
             }
-        });
+        }
+
+        // Aktivace kliknutím kamkoliv do okna Interagovat
+        widgetContainer.addEventListener('click', initSpeech);
     </script>
 </body>
 </html>

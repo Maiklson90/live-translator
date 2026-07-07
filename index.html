@@ -1,214 +1,166 @@
 <!DOCTYPE html>
 <html lang="sk">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OBS Live Translator</title>
-
-<style>
-html, body{
-    margin:0;
-    padding:0;
-    width:100%;
-    height:100%;
-    background:transparent !important; /* Průhledné pozadí */
-    overflow:hidden;
-    font-family:Arial,Helvetica,sans-serif;
-}
-
-#translator-widget{
-    width:100%;
-    height:100%;
-    display:flex;
-    flex-direction:column;
-    justify-content:flex-end;
-    align-items:center;
-    padding-bottom:60px;
-    box-sizing:border-box;
-    cursor: pointer; /* Značí, že plocha je klikatelná */
-}
-
-#device-select{
-    margin-bottom:20px;
-    padding:10px;
-    font-size:16px;
-    background:#222;
-    color:#fff;
-    border:2px solid #fff;
-    border-radius:6px;
-    cursor:pointer;
-    display: none; /* Skryté, dokud uživatel neklikne na widget */
-}
-
-#output-text{
-    margin:0;
-    font-size:36px;
-    font-weight:800;
-    color:white;
-    text-align:center;
-    -webkit-text-stroke:2px black;
-    text-shadow:0 4px 8px rgba(0,0,0,.7);
-    opacity:1;
-    transition:.35s;
-}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBS Live Translator - Chrome Capture verze</title>
+    <style>
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100vh;
+            /* Čistě zelené pozadí kvůli chroma key v OBS (Window Capture + Color Key filtr) */
+            background-color: #00FF00 !important;
+            overflow: hidden; font-family: 'Arial', sans-serif;
+        }
+        #translator-widget {
+            width: 100%; height: 100%; display: flex;
+            flex-direction: column; justify-content: flex-end;
+            align-items: center; box-sizing: border-box; padding-bottom: 60px;
+        }
+        #text-container { width: 90%; text-align: center; }
+        #output-text {
+            font-size: 36px; font-weight: 800; color: #ffffff;
+            -webkit-text-stroke: 2px #000000;
+            text-shadow: 0px 4px 8px rgba(0, 0, 0, 0.7);
+            margin: 0; opacity: 1; transition: opacity 0.4s ease-in-out;
+        }
+        #device-select {
+            margin-bottom: 20px; padding: 10px; font-size: 16px;
+            z-index: 99999; background: #222; color: white; border: 2px solid white;
+            border-radius: 5px; cursor: pointer;
+        }
+        #status {
+            position: absolute; top: 10px; left: 10px; color: white;
+            background: rgba(0,0,0,0.6); padding: 4px 10px; border-radius: 4px;
+            font-size: 12px; font-family: monospace;
+        }
+    </style>
 </head>
-
 <body>
 
-<div id="translator-widget" id="main-widget">
+    <div id="status">Čekám na výběr mikrofonu...</div>
 
-<select id="device-select">
-<option value="">-- VYBER MIKROFON A KLIKNI SEM --</option>
-</select>
+    <div id="translator-widget">
+        <select id="device-select">
+            <option value="">-- VYBER SVŮJ MIKROFON A KLIKNI SEM PRO START --</option>
+        </select>
 
-<p id="output-text">
-Klikni sem přes 'Interagovat' pro načtení mikrofonů...
-</p>
+        <div id="text-container">
+            <p id="output-text">Vyber nahoře mikrofon...</p>
+        </div>
+    </div>
 
-</div>
+    <script>
+        const selectEl = document.getElementById('device-select');
+        const outputText = document.getElementById('output-text');
+        const statusEl = document.getElementById('status');
 
-<script>
-const outputText=document.getElementById("output-text");
-const select=document.getElementById("device-select");
-const widget=document.getElementById("translator-widget");
+        let recognition;
+        let fadeTimeout;
+        let isRunning = false;
 
-let recognition=null;
-let running=false;
-let fadeTimeout;
-let devicesLoaded = false;
+        function setStatus(msg) {
+            statusEl.innerText = msg;
+            console.log('[status]', msg);
+        }
 
-// Funkce se spustí až po PRVNÍM KLIKNUTÍ na widget
-async function initializeWidget() {
-    if (devicesLoaded) return;
-    
-    if(!window.SpeechRecognition && !window.webkitSpeechRecognition){
-        outputText.innerHTML = "❌ OBS nepodporuje SpeechRecognition.<br>Ujisti se, že máš v zástupci povolen --enable-media-stream";
-        return;
-    }
+        async function loadDevices() {
+            try {
+                await navigator.mediaDevices.getUserMedia({ audio: true });
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const audioDevices = devices.filter(d => d.kind === 'audioinput');
 
-    outputText.innerText = "Žádám o přístup k mikrofonu...";
-    await loadDevices();
-}
-
-async function loadDevices(){
-    try{
-        await navigator.mediaDevices.getUserMedia({audio:true});
-        const devices=await navigator.mediaDevices.enumerateDevices();
-        const mics=devices.filter(d=>d.kind==="audioinput");
-
-        // Vyčistíme staré možnosti
-        select.innerHTML = '<option value="">-- VYBER MIKROFON ZE SEZNAMU --</option>';
-
-        mics.forEach(device=>{
-            const option=document.createElement("option");
-            option.value=device.deviceId;
-            option.text=device.label || "Mikrofon / Audio Input";
-            select.appendChild(option);
-        });
-
-        select.style.display = "block"; // Ukážeme menu
-        outputText.innerText = "Vyber svůj mikrofon v seznamu nahoře.";
-        devicesLoaded = true;
-    }catch(e){
-        outputText.innerText = "Nelze načíst mikrofony: " + e.message;
-    }
-}
-
-function fade(){
-    clearTimeout(fadeTimeout);
-    outputText.style.opacity=1;
-    fadeTimeout=setTimeout(()=>{
-        outputText.style.opacity=0;
-    },3000);
-}
-
-async function translate(text){
-    if(!text.trim()) return null;
-    try{
-        const url=`https://translate.googleapis.com/translate_a/single?client=gtx&sl=sk&tl=en&dt=t&q=${encodeURIComponent(text)}`;
-        const response=await fetch(url);
-        const json=await response.json();
-        return json[0].map(x=>x[0]).join("");
-    }catch(e){
-        return null;
-    }
-}
-
-// Spuštění samotného překladu po vybrání mikrofonu
-select.onchange=async()=>{
-    if(running) return;
-    if(select.value==="") return;
-
-    running=true;
-    select.style.display="none"; // Schováme menu, aby nebylo na streamu
-    outputText.innerText="Inicializuji překladač...";
-
-    try{
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio:{ deviceId:{ exact:select.value } }
-        });
-
-        const SR=window.SpeechRecognition || window.webkitSpeechRecognition;
-        recognition=new SR();
-
-        recognition.lang="sk-SK";
-        recognition.continuous=true;
-        recognition.interimResults=true;
-
-        recognition.onerror=(e)=>{
-            console.log("Speech ERROR",e);
-            if(e.error !== 'no-speech') {
-                outputText.innerText="Chyba rozpoznávání: "+e.error;
+                audioDevices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Mikrofon (${device.deviceId.slice(0,5)}...)`;
+                    selectEl.appendChild(option);
+                });
+                setStatus('Mikrofony načteny. Vyber jeden ze seznamu.');
+            } catch (err) {
+                setStatus('Chyba načítání mikrofonů: ' + err.message);
             }
-        };
+        }
 
-        recognition.onresult=async(event)=>{
-            let interim="";
-            let final="";
+        loadDevices();
 
-            for(let i=event.resultIndex;i<event.results.length;i++){
-                if(event.results[i].isFinal){
-                    final+=event.results[i][0].transcript;
-                }else{
-                    interim+=event.results[i][0].transcript;
+        function startFadeTimeout() {
+            clearTimeout(fadeTimeout);
+            fadeTimeout = setTimeout(() => { outputText.style.opacity = '0'; }, 3000);
+        }
+
+        async function fetchTranslation(text) {
+            if (!text.trim()) return null;
+            const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=sk&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                return data[0].map(item => item[0]).join('');
+            } catch (e) {
+                setStatus('Chyba překladu: ' + e.message);
+                return null;
+            }
+        }
+
+        selectEl.addEventListener('change', async () => {
+            const selectedDeviceId = selectEl.value;
+            if (!selectedDeviceId || isRunning) return;
+
+            isRunning = true;
+            outputText.innerText = "Inicializace vybraného mikrofonu...";
+            selectEl.style.display = 'none';
+
+            try {
+                await navigator.mediaDevices.getUserMedia({
+                    audio: { deviceId: { exact: selectedDeviceId } }
+                });
+
+                const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+                if (!SpeechRecognition) {
+                    setStatus('Tento prohlížeč nepodporuje SpeechRecognition. Použij Google Chrome.');
+                    isRunning = false;
+                    selectEl.style.display = 'block';
+                    return;
                 }
+
+                recognition = new SpeechRecognition();
+                recognition.lang = 'sk-SK';
+                recognition.continuous = true;
+                recognition.interimResults = true;
+
+                recognition.onstart = () => setStatus('Naslouchám...');
+                recognition.onerror = (e) => setStatus('Chyba rozpoznávání: ' + e.error);
+
+                recognition.onresult = async (event) => {
+                    let interimTranscript = ''; let finalTranscript = '';
+                    for (let i = event.resultIndex; i < event.results.length; ++i) {
+                        if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+                        else interimTranscript += event.results[i][0].transcript;
+                    }
+                    const textToTranslate = finalTranscript || interimTranscript;
+                    if (textToTranslate.trim().length > 0) {
+                        const translatedEnglish = await fetchTranslation(textToTranslate);
+                        if (translatedEnglish) {
+                            outputText.innerText = translatedEnglish;
+                            outputText.style.opacity = '1';
+                            startFadeTimeout();
+                        }
+                    }
+                };
+
+                recognition.onend = () => {
+                    if (isRunning) {
+                        setTimeout(() => { try { recognition.start(); } catch(e) {} }, 400);
+                    }
+                };
+
+                recognition.start();
+
+            } catch (err) {
+                setStatus('Chyba spuštění: ' + err.message);
+                selectEl.style.display = 'block';
+                isRunning = false;
             }
-
-            const text=final || interim;
-
-            if(text.trim().length){
-                const translated=await translate(text);
-                if(translated){
-                    outputText.innerText=translated;
-                    fade();
-                }
-            }
-        };
-
-        recognition.onend=() => {
-            // Bezpečné restartování smyčky na pozadí OBS
-            if(running){
-                setTimeout(()=>{
-                    try{ recognition.start(); }catch(e){}
-                },400);
-            }
-        };
-
-        recognition.start();
-        outputText.innerText="Naslouchám... Můžeš mluvit.";
-        fade();
-
-    }catch(e){
-        outputText.innerText="Chyba systému: " + e.message;
-        select.style.display="block";
-        running=false;
-    }
-}
-
-// První kliknutí aktivuje vyhledání mikrofonů
-widget.addEventListener('click', initializeWidget);
-</script>
-
+        });
+    </script>
 </body>
 </html>

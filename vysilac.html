@@ -2,7 +2,7 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>VYSÍLAČ - Automatické propojení s Kickbotem</title>
+    <title>VYSÍLAČ - Automatické propojení</title>
     <style>
         body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
         button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #00ff00; border: none; font-weight: bold; border-radius: 5px; margin-top: 15px; }
@@ -12,10 +12,10 @@
 </head>
 <body>
 
-    <h1>Překladač pro Kickbot widget</h1>
-    <p>Stačí kliknout na tlačítko níže. Vše se propojí automaticky bez opisování kódů.</p>
-    <button id="start-btn">SPUSTIT A PROPOJIT WIDGET</button>
-    <div id="status">Stav: Čekám na spuštění...</div>
+    <h1>Překladač pro OBS</h1>
+    <p>Stačí kliknout na tlačítko níže a okna se propojí sama.</p>
+    <button id="start-btn">SPUSTIT A PROPOJIT S OBS</button>
+    <div id="status">Stav: Čekám na kliknutí...</div>
 
     <script>
         const startBtn = document.getElementById('start-btn');
@@ -26,12 +26,8 @@
         let recognition;
         let isRunning = false;
 
-        // Unikátní ID pro vysílač
-        peer = new Peer('Chrimsie3003Maiklson-Chrome-Vysilac');
-
-        peer.on('open', () => {
-            statusEl.innerText = "Stav: Připraven. Klikni na tlačítko.";
-        });
+        // Vlastní pevné ID vysílače
+        peer = new Peer('Chrimsie3003Maiklson-vysilac');
 
         async function fetchTranslation(text) {
             if (!text.trim()) return null;
@@ -45,18 +41,18 @@
 
         startBtn.addEventListener('click', () => {
             if (isRunning) return;
-            statusEl.innerText = "Připojuji se ke Kickbot widgetu...";
+            statusEl.innerText = "Hledám OBS a připojuji se...";
             
-            // Tady se natvrdo připojíme na Kickbot přijímač
-            conn = peer.connect('Chrimsie3003Maiklson-Kickbot-Prijimac');
+            // Automaticky se připojíme na pevné ID přijímače
+            conn = peer.connect('Chrimsie3003Maiklson-prijimac');
             
             conn.on('open', () => {
-                statusEl.innerText = "Stav: SPOJENO S KICKBOTEM! Můžeš minimalizovat Chrome.";
+                statusEl.innerText = "Stav: SPOJENO! Můžeš minimalizovat Chrome na lištu.";
                 startRecording();
             });
 
             conn.on('close', () => {
-                statusEl.innerText = "Stav: Spojení ztraceno, zkouším znovu...";
+                statusEl.innerText = "Stav: Spojení ztraceno, zkus kliknout znovu.";
                 isRunning = false;
                 startBtn.style.display = 'inline-block';
             });
@@ -83,7 +79,7 @@
                 if (text.trim().length > 0) {
                     const trans = await fetchTranslation(text);
                     if (trans && conn && conn.open) {
-                        conn.send(trans); // POSÍLÁME PŘEKLAD DO KICKBOTU
+                        conn.send(trans);
                     }
                 }
             };

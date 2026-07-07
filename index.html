@@ -2,125 +2,134 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OBS Live Translator</title>
+    <title>Bypass Překladač</title>
     <style>
-        /* CSS STYLOVÁNÍ */
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #00ff00 !important; /* Čistě zelená pro Chroma Key */
-            overflow: hidden;
-            font-family: 'Arial', sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: flex-end; /* Text bude ve spodní části obrazovky */
-            height: 100vh;
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100vh;
+            background-color: transparent !important;
+            overflow: hidden; font-family: 'Arial', sans-serif;
         }
-
-        #translator-container {
-            width: 90%;
-            margin-bottom: 50px;
-            text-align: center;
+        #widget {
+            width: 100%; height: 100%; display: flex;
+            justify-content: center; align-items: flex-end;
+            padding-bottom: 60px; box-sizing: border-box; cursor: pointer;
         }
-
-        #translated-text {
-            font-size: 32px;
-            font-weight: bold;
-            color: #ffffff; /* Bílý text */
-            /* Tlustý černý obrys textu pro perfektní čitelnost v OBS */
-            text-shadow: 
-                -2px -2px 0 #000,  
-                 2px -2px 0 #000,
-                -2px  2px 0 #000,
-                 2px  2px 0 #000,
-                 4px  4px 5px rgba(0,0,0,0.8);
-            transition: opacity 0.5s ease-in-out; /* Plynulé mizení */
-            opacity: 1; /* Na začátku viditelný kvůli testu */
+        #output-text {
+            font-size: 36px; font-weight: 800; color: #ffffff;
+            -webkit-text-stroke: 2px #000000;
+            text-shadow: 0px 4px 8px rgba(0, 0, 0, 0.7);
+            text-align: center; width: 90%; margin: 0;
+            transition: opacity 0.4s ease;
         }
     </style>
 </head>
 <body>
 
-    <div id="translator-container">
-        <p id="translated-text">Widget načten, povol mikrofon a začni mluvit...</p>
+    <div id="widget">
+        <p id="output-text">KLIKNI SEM PRO START...</p>
     </div>
 
     <script>
-        // JAVASCRIPT LOGIKA
-        const textDisplay = document.getElementById('translated-text');
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        
-        if (!SpeechRecognition) {
-            alert("Rozpoznávání reči není podporováno. Použij Chrome nebo Edge.");
-        } else {
-            const recognition = new SpeechRecognition();
-            recognition.lang = 'sk-SK'; // Jazyk, kterým mluvíš ty (slovenština)
-            recognition.continuous = true; // Nepřestane poslouchat po jedné větě
-            recognition.interimResults = false; // Chceme až finální věty
+        const textEl = document.getElementById('output-text');
+        let isRunning = false;
 
+        // TENTO SKRIPT SE SPUSTÍ VE VIRTUÁLNÍM PROSTŘEDÍ
+        const workerCode = `
+            let recognition;
             let fadeTimeout;
 
-            // Bezplatný překlad přes Google Translate
-            async function translateText(text, from = 'sk', to = 'en') {
-                const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
-                try {
-                    const response = await fetch(url);
-                    const data = await response.json();
-                    return data[0].map(item => item[0]).join('');
-                } catch (error) {
-                    console.error("Chyba překladu:", error);
-                    return null;
-                }
-            }
+            window.addEventListener('message', async (e) => {
+                if (e.data.type === 'START') {
+                    try {
+                        // Vynucení audio kontextu
+                        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        
+                        // Přímý pokus o vyvolání systémového okna pro mikrofon
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        
+                        const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+                        recognition = new SpeechRecognition();
+                        recognition.lang = 'sk-SK';
+                        recognition.continuous = true;
+                        recognition.interimResults = true;
 
-            // Časovač: 3 sekundy ticha = text zmizí
-            function startFadeTimeout() {
-                clearTimeout(fadeTimeout);
-                fadeTimeout = setTimeout(() => {
-                    textDisplay.style.opacity = 0;
-                }, 3000); 
-            }
+                        recognition.onresult = async (event) => {
+                            let interim = ''; let final = '';
+                            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                                if (event.results[i].isFinal) final += event.results[i][0].transcript;
+                                else interim += event.results[i][0].transcript;
+                            }
+                            const text = final || interim;
+                            if (text.trim()) {
+                                // Překlad
+                                const url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=sk&tl=en&dt=t&q=' + encodeURIComponent(text);
+                                const res = await fetch(url);
+                                const data = await res.json();
+                                const trans = data[0].map(item => item[0]).join('');
+                                window.parent.postMessage({ type: 'TEXT', val: trans }, '*');
+                            }
+                        };
 
-            // Když prohlížeč zachytí řeč
-            recognition.onresult = async (event) => {
-                const currentResultIndex = event.results.length - 1;
-                const spokenText = event.results[currentResultIndex][0].transcript;
-                
-                // Překlad do angličtiny
-                const englishTranslation = await translateText(spokenText);
-                
-                if (englishTranslation) {
-                    textDisplay.innerText = englishTranslation;
-                    textDisplay.style.opacity = 1; // Zviditelnit text
-                    startFadeTimeout(); // Spustit odpočet na 3 sekundy
-                }
-            };
+                        recognition.onend = () => { recognition.start(); };
+                        recognition.onerror = (err) => { 
+                            window.parent.postMessage({ type: 'ERROR', val: err.error }, '*'); 
+                        };
 
-            // Ošetření chyb s mikrofonem
-            recognition.onerror = (event) => {
-                console.error("Chyba mikrofonu:", event.error);
-                if (event.error === 'not-allowed') {
-                    textDisplay.innerText = "CHYBA: Mikrofon je blokován! Povol ho v prohlížeči.";
-                }
-            };
+                        recognition.start();
+                        window.parent.postMessage({ type: 'READY' }, '*');
 
-            // Automatický restart, aby widget poslouchal nonstop
-            recognition.onend = () => { 
-                try {
-                    recognition.start(); 
-                } catch(e) {}
-            };
-            
-            // Spuštění po načtení stránky
-            window.addEventListener('DOMContentLoaded', () => {
-                try {
-                    recognition.start();
-                } catch(e) {
-                    console.log("Už běží nebo chyba startu:", e);
+                    } catch (err) {
+                        window.parent.postMessage({ type: 'ERROR', val: err.message }, '*');
+                    }
                 }
             });
-        }
+        `;
+
+        // Spuštění triku s iFramem v reálném čase, aby si OBS myslelo, že je to externí web
+        document.getElementById('widget').addEventListener('click', () => {
+            if (isRunning) return;
+            isRunning = true;
+            textEl.innerText = "Spouštím bezpečné audio rozhraní...";
+
+            const blob = new Blob([`
+                <!DOCTYPE html>
+                <html>
+                <body>
+                <script>${workerCode}<\/script>
+                </body>
+                </html>
+            `], { type: 'text/html' });
+            
+            const iframe = document.createElement('iframe');
+            iframe.src = URL.createObjectURL(blob);
+            iframe.style.display = 'none';
+            // Natvrdo aplikujeme povolení mikrofonu pro tento virtuální iFrame
+            iframe.setAttribute('allow', 'microphone'); 
+            document.body.appendChild(iframe);
+
+            iframe.onload = () => {
+                iframe.contentWindow.postMessage({ type: 'START' }, '*');
+            };
+        });
+
+        // Naslouchání odpovědí z virtuálního rozhraní
+        window.addEventListener('message', (e) => {
+            if (e.data.type === 'READY') {
+                textEl.innerText = "Naslouchám... Mluv slovensky.";
+                setTimeout(() => { textEl.style.opacity = '0'; }, 3000);
+            }
+            if (e.data.type === 'TEXT') {
+                textEl.innerText = e.data.val;
+                textEl.style.opacity = '1';
+                clearTimeout(window.fade);
+                window.fade = setTimeout(() => { textEl.style.opacity = '0'; }, 3000);
+            }
+            if (e.data.type === 'ERROR') {
+                textEl.innerText = "Chyba systému: " + e.data.val + " (Zkontroluj ikonu mikrofonu u hodin ve Windows!)";
+                textEl.style.opacity = '1';
+                isRunning = false;
+            }
+        });
     </script>
 </body>
 </html>

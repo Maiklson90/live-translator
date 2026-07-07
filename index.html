@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBS Live Translator</title>
+    <style>
+        /* CSS STYLOVÁNÍ */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #00ff00 !important; /* Čistě zelená pro Chroma Key */
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end; /* Text bude ve spodní části obrazovky */
+            height: 100vh;
+        }
+
+        #translator-container {
+            width: 90%;
+            margin-bottom: 50px;
+            text-align: center;
+        }
+
+        #translated-text {
+            font-size: 32px;
+            font-weight: bold;
+            color: #ffffff; /* Bílý text */
+            /* Tlustý černý obrys textu pro perfektní čitelnost v OBS */
+            text-shadow: 
+                -2px -2px 0 #000,  
+                 2px -2px 0 #000,
+                -2px  2px 0 #000,
+                 2px  2px 0 #000,
+                 4px  4px 5px rgba(0,0,0,0.8);
+            transition: opacity 0.5s ease-in-out; /* Plynulé mizení */
+            opacity: 1; /* Na začátku viditelný kvůli testu */
+        }
+    </style>
+</head>
+<body>
+
+    <div id="translator-container">
+        <p id="translated-text">Widget načten, povol mikrofon a začni mluvit...</p>
+    </div>
+
+    <script>
+        // JAVASCRIPT LOGIKA
+        const textDisplay = document.getElementById('translated-text');
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        
+        if (!SpeechRecognition) {
+            alert("Rozpoznávání reči není podporováno. Použij Chrome nebo Edge.");
+        } else {
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'sk-SK'; // Jazyk, kterým mluvíš ty (slovenština)
+            recognition.continuous = true; // Nepřestane poslouchat po jedné větě
+            recognition.interimResults = false; // Chceme až finální věty
+
+            let fadeTimeout;
+
+            // Bezplatný překlad přes Google Translate
+            async function translateText(text, from = 'sk', to = 'en') {
+                const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${from}&tl=${to}&dt=t&q=${encodeURIComponent(text)}`;
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    return data[0].map(item => item[0]).join('');
+                } catch (error) {
+                    console.error("Chyba překladu:", error);
+                    return null;
+                }
+            }
+
+            // Časovač: 3 sekundy ticha = text zmizí
+            function startFadeTimeout() {
+                clearTimeout(fadeTimeout);
+                fadeTimeout = setTimeout(() => {
+                    textDisplay.style.opacity = 0;
+                }, 3000); 
+            }
+
+            // Když prohlížeč zachytí řeč
+            recognition.onresult = async (event) => {
+                const currentResultIndex = event.results.length - 1;
+                const spokenText = event.results[currentResultIndex][0].transcript;
+                
+                // Překlad do angličtiny
+                const englishTranslation = await translateText(spokenText);
+                
+                if (englishTranslation) {
+                    textDisplay.innerText = englishTranslation;
+                    textDisplay.style.opacity = 1; // Zviditelnit text
+                    startFadeTimeout(); // Spustit odpočet na 3 sekundy
+                }
+            };
+
+            // Ošetření chyb s mikrofonem
+            recognition.onerror = (event) => {
+                console.error("Chyba mikrofonu:", event.error);
+                if (event.error === 'not-allowed') {
+                    textDisplay.innerText = "CHYBA: Mikrofon je blokován! Povol ho v prohlížeči.";
+                }
+            };
+
+            // Automatický restart, aby widget poslouchal nonstop
+            recognition.onend = () => { 
+                try {
+                    recognition.start(); 
+                } catch(e) {}
+            };
+            
+            // Spuštění po načtení stránky
+            window.addEventListener('DOMContentLoaded', () => {
+                try {
+                    recognition.start();
+                } catch(e) {
+                    console.log("Už běží nebo chyba startu:", e);
+                }
+            });
+        }
+    </script>
+</body>
+</html>

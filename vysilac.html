@@ -36,9 +36,7 @@
 
         // Pokus o připojení k OBS (přijímači)
         function connectToOBS() {
-        peer = new Peer('Chrimsie3003Maiklson-vysilac');
-        // ... a kousek níž:
-        conn = peer.connect('Chrimsie3003Maiklson-prijimac');
+            conn = peer.connect('moje-unikatni-id-prekladace-prijimac');
             conn.on('open', () => {
                 statusEl.innerText = "Stav: Spojeno s OBS! Můžeš minimalizovat okno.";
             });

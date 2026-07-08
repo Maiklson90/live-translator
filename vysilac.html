@@ -81,7 +81,7 @@
             recognition = new SR();
             recognition.lang = 'sk-SK';
             recognition.continuous = true;
-            recognition.interimResults = true;
+            recognition.interimResults = false;
 
             recognition.onresult = async (event) => {
                 let interim = ''; let final = '';

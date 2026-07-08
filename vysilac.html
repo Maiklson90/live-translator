@@ -38,7 +38,7 @@
             conn.on('close', () => { connectedClients = connectedClients.filter(c => c !== conn); updateWidgetCount(); });
         });
 
-        function updateWidgetCount() { widgetsEl.innerText = `Připojená OBS okna: ${connectedClients.length}`; }
+        function updateWidgetCount() { widgetsEl.innerText = `Připojená OBS: ${connectedClients.length}`; }
 
         async function fetchTranslation(text) {
             if (!text.trim()) return null;

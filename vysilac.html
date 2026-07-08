@@ -14,10 +14,11 @@
 <body>
 
     <h1>Hlasový Vysílač (Server)</h1>
-    <p>Tento panel vysílá překlad přímo do tvého Kickbot widgetu v OBS.</p>
+    <p>Tento panel vysílá překlad přímo do tvého OBS.</p>
+    <p>!! POZOR: Při mute OBS stále překlad funguje, jestli chceš skrýt aktivitu mluvení doma = nutno mutnout mikrofon ve WIN nebo na zařízení !!</p>
     <button id="start-btn">SPUSTIT MIKROFON</button>
     <div id="status">Stav: Inicializace systému...</div>
-    <div id="connected-widgets">Připojená OBS okna: 0</div>
+    <div id="connected-widgets">Připojené OBS: 0</div>
 
     <script>
         const startBtn = document.getElementById('start-btn');
@@ -47,7 +48,7 @@
 
         startBtn.addEventListener('click', () => {
             if (isRunning) return; isRunning = true; startBtn.style.display = 'none';
-            statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se posílá po ucelených částech.";
+            statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se posílá do OBS.";
             startRecording();
         });
 

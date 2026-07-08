@@ -9,7 +9,9 @@
         .btn-start { background: #00ff00; color: black; }
         .btn-stop { background: #ff0000; color: white; }
         #status { margin-top: 20px; font-size: 20px; color: #bbb; }
-        #connected-widgets { margin-top: 15px; color: #00ff00; font-weight: bold; font-size: 18px; }
+        #connected-widgets { margin-top: 15px; font-weight: bold; font-size: 18px; }
+        .status-ano { color: #00ff00; }
+        .status-ne { color: #ff0000; }
     </style>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
@@ -17,27 +19,49 @@
 
     <h1>Hlasový Vysílač (Server)</h1>
     <p>Tento panel vysílá překlad přímo do tvého Kickbot widgetu v OBS.</p>
-    <p>!! POZOR !! Mute v OBS nevypne překlad, pro soukromí musíš ztlumit mikrofon přímo ve Windows nebo zde.</p>
-    <button id="start-btn" class="btn-start">SPUSTIT MIKROFON</button>
+    <button id="start-btn" class="btn-start">SPUSTIT DIKTOVÁNÍ MIKROFONU</button>
     <div id="status">Stav: Inicializace systému...</div>
-    <div id="connected-widgets">Připojené OBS: 0</div>
+    
+    <div id="connected-widgets">Spojeno s OBS: <span id="yes-no-status" class="status-ne">NE</span></div>
 
     <script>
         const startBtn = document.getElementById('start-btn');
         const statusEl = document.getElementById('status');
-        const widgetsEl = document.getElementById('connected-widgets');
+        const widgetsEl = document.getElementById('yes-no-status');
         
         let peer; let connectedClients = []; let recognition; let isRunning = false;
 
         peer = new Peer('Chrimsie-Hlavni-Vysilac-Server');
 
         peer.on('open', () => { statusEl.innerText = "Stav: Připraven. Klikni na zelené tlačítko."; });
+        
         peer.on('connection', (conn) => {
-            connectedClients.push(conn); updateWidgetCount();
-            conn.on('close', () => { connectedClients = connectedClients.filter(c => c !== conn); updateWidgetCount(); });
+            connectedClients.push(conn);
+            updateWidgetStatus();
+
+            conn.on('close', () => {
+                connectedClients = connectedClients.filter(c => c !== conn);
+                updateWidgetStatus();
+            });
         });
 
-        function updateWidgetCount() { widgetsEl.innerText = `Připojená OBS: ${connectedClients.length}`; }
+        peer.on('error', (err) => {
+            if (err.type === 'unavailable-id') {
+                statusEl.innerText = "Chyba: Panel už máš otevřený jinde!";
+                statusEl.style.color = "red";
+            }
+        });
+
+        // NOVÁ FUNKCE: Hlídá jen jestli je počet připojení větší než 0
+        function updateWidgetStatus() {
+            if (connectedClients.length > 0) {
+                widgetsEl.innerText = "ANO";
+                widgetsEl.className = "status-ano";
+            } else {
+                widgetsEl.innerText = "NE";
+                widgetsEl.className = "status-ne";
+            }
+        }
 
         async function fetchTranslation(text) {
             if (!text.trim()) return null;
@@ -48,62 +72,40 @@
             } catch (e) { return null; }
         }
 
-        // CHYTRÉ TLAČÍTKO: Přepíná zapnuto / vypnuto
         startBtn.addEventListener('click', () => {
             if (!isRunning) {
-                // ZAPNUTÍ MIKROFONU
                 isRunning = true;
                 startBtn.innerText = "ZASTAVIT DIKTOVÁNÍ (MUTE)";
-                startBtn.className = "btn-stop"; // Změna na červenou
-                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se posílá po do OBS.";
+                startBtn.className = "btn-stop";
+                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se posílá po ucelených částech.";
                 startRecording();
             } else {
-                // VYPNUTÍ MIKROFONU (MUTE)
                 isRunning = false;
-                startBtn.innerText = "SPUSTIT MIKROFON";
-                startBtn.className = "btn-start"; // Změna na zelenou
+                startBtn.innerText = "SPUSTIT DIKTOVÁNÍ MIKROFONU";
+                startBtn.className = "btn-start";
                 statusEl.innerText = "Stav: MIKROFON VYPNUTÝ (MUTE). Do OBS se nic neposílá.";
-                if (recognition) {
-                    recognition.stop(); // Natvrdo zastavíme nahrávání v Chrome
-                }
+                if (recognition) recognition.stop();
             }
         });
 
         function startRecording() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            recognition = new SR();
-            recognition.lang = 'sk-SK';
-            recognition.continuous = true;
-            recognition.interimResults = false; 
+            recognition = new SR(); recognition.lang = 'sk-SK'; recognition.continuous = true; recognition.interimResults = false; 
 
             recognition.onresult = async (event) => {
-                // Pojistka: Pokud mezitím uživatel kliknul na STOP, ignoruj výsledky
                 if (!isRunning) return;
-
                 let finalBlock = '';
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) {
-                        finalBlock += event.results[i][0].transcript;
-                    }
+                    if (event.results[i].isFinal) finalBlock += event.results[i][0].transcript;
                 }
-                
                 if (finalBlock.trim().length > 0) {
                     const trans = await fetchTranslation(finalBlock);
-                    if (trans && isRunning) { // Ještě jednou ověříme, že mezitím nepadlo stop
-                        connectedClients.forEach(conn => {
-                            if (conn.open) conn.send(trans);
-                        });
+                    if (trans && isRunning) {
+                        connectedClients.forEach(conn => { if (conn.open) conn.send(trans); });
                     }
                 }
             };
-
-            recognition.onend = () => {
-                // Mikrofon se sám restartuje JEN tehdy, když je diktování stále aktivní (isRunning je true)
-                if (isRunning) {
-                    setTimeout(() => { try { recognition.start(); } catch(e){} }, 400);
-                }
-            };
-
+            recognition.onend = () => { if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 400); };
             recognition.start();
         }
     </script>

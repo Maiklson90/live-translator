@@ -18,8 +18,9 @@
 <body>
 
     <h1>Hlasový Vysílač (Server)</h1>
-    <p>Tento panel vysílá překlad přímo do tvého Kickbot widgetu v OBS.</p>
-    <button id="start-btn" class="btn-start">SPUSTIT DIKTOVÁNÍ MIKROFONU</button>
+    <p>Tento panel vysílá překlad přímo do tvého OBS.</p>
+    <p>!! POZOR !! Mute v OBS nevypne překlad, pro soukromí musíš ztlumit mikrofon přímo ve Windows nebo zde.</p>
+    <button id="start-btn" class="btn-start">SPUSTIT MIKROFON</button>
     <div id="status">Stav: Inicializace systému...</div>
     
     <div id="connected-widgets">Spojeno s OBS: <span id="yes-no-status" class="status-ne">NE</span></div>
@@ -75,13 +76,13 @@
         startBtn.addEventListener('click', () => {
             if (!isRunning) {
                 isRunning = true;
-                startBtn.innerText = "ZASTAVIT DIKTOVÁNÍ (MUTE)";
+                startBtn.innerText = "ZASTAVIT MIKROFON (MUTE)";
                 startBtn.className = "btn-stop";
-                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se posílá po ucelených částech.";
+                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se posílá do OBS.";
                 startRecording();
             } else {
                 isRunning = false;
-                startBtn.innerText = "SPUSTIT DIKTOVÁNÍ MIKROFONU";
+                startBtn.innerText = "SPUSTIT MIKROFON";
                 startBtn.className = "btn-start";
                 statusEl.innerText = "Stav: MIKROFON VYPNUTÝ (MUTE). Do OBS se nic neposílá.";
                 if (recognition) recognition.stop();

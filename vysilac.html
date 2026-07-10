@@ -22,6 +22,7 @@
     <p>!! POZOR !! Mute v OBS nevypne překlad, pro soukromí musíš ztlumit mikrofon přímo ve Windows nebo zde.</p>
     <button id="start-btn" class="btn-start">SPUSTIT MIKROFON</button>
     <div id="status">Stav: Inicializace systému...</div>
+    
     <div id="connected-widgets">Spojeno s OBS: <span id="yes-no-status" class="status-ne">NE</span></div>
 
     <script>
@@ -30,7 +31,6 @@
         const widgetsEl = document.getElementById('yes-no-status');
         
         let peer; let connectedClients = []; let recognition; let isRunning = false;
-        let lastSentText = ""; 
 
         peer = new Peer('Chrimsie-Hlavni-Vysilac-Server');
 
@@ -39,16 +39,29 @@
         peer.on('connection', (conn) => {
             connectedClients.push(conn);
             updateWidgetStatus();
-            conn.on('close', () => { connectedClients = connectedClients.filter(c => c !== conn); updateWidgetStatus(); });
-            conn.on('error', () => { connectedClients = connectedClients.filter(c => c !== conn); updateWidgetStatus(); });
+
+            conn.on('close', () => {
+                connectedClients = connectedClients.filter(c => c !== conn);
+                updateWidgetStatus();
+            });
+        });
+
+        peer.on('error', (err) => {
+            if (err.type === 'unavailable-id') {
+                statusEl.innerText = "Chyba: Panel už máš otevřený jinde!";
+                statusEl.style.color = "red";
+            }
         });
 
         function updateWidgetStatus() {
-            connectedClients = connectedClients.filter(conn => conn && conn.open);
-            if (connectedClients.length > 0) { widgetsEl.innerText = "ANO"; widgetsEl.className = "status-ano"; }
-            else { widgetsEl.innerText = "NE"; widgetsEl.className = "status-ne"; }
+            if (connectedClients.length > 0) {
+                widgetsEl.innerText = "ANO";
+                widgetsEl.className = "status-ano";
+            } else {
+                widgetsEl.innerText = "NE";
+                widgetsEl.className = "status-ne";
+            }
         }
-        setInterval(updateWidgetStatus, 2000);
 
         async function fetchTranslation(text) {
             if (!text.trim()) return null;
@@ -79,44 +92,36 @@
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SR(); recognition.lang = 'sk-SK'; recognition.continuous = true; 
             
-            // Povolíme průběžné výsledky, abychom mohli text sekat dřív, než uděláš obří pauzu
+            // Povolíme částečné výsledky, abychom mohli hlídat délku vět
             recognition.interimResults = true; 
+            let forceCut = false;
 
             recognition.onresult = async (event) => {
                 if (!isRunning) return;
-                let interim = ''; let final = '';
+                let finalBlock = '';
+                let interimBlock = '';
                 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) final += event.results[i][0].transcript;
-                    else interim += event.results[i][0].transcript;
+                    if (event.results[i].isFinal) finalBlock += event.results[i][0].transcript;
+                    else interimBlock += event.results[i][0].transcript;
                 }
                 
-                let fullText = final || interim;
-                fullText = fullText.trim();
-
-                // Pokud mluvíš dlouho, Google občas neodsekne větu. Sekneme ji my, pokud má víc než 7 slov a ty zrovna na setinu vteřiny zvolníš.
-                if (fullText.length > 0 && fullText !== lastSentText) {
-                    let words = fullText.split(" ");
-                    
-                    // Pokud je text dlouhý nebo Google potvrdil finální blok
-                    if (words.length >= 7 || final) {
-                        const textToSend = fullText;
-                        lastSentText = fullText; 
-                        
-                        const trans = await fetchTranslation(textToSend);
-                        if (trans && isRunning) {
-                            connectedClients.forEach(conn => { if (conn.open) conn.send(trans); });
-                        }
-                        
-                        // Restartujeme rozpoznávání, aby se vyčistila paměť a neposílal se starý text
-                        if (words.length >= 7) {
-                            recognition.stop();
-                        }
+                // Odeslání hotové věty
+                if (finalBlock.trim().length > 0) {
+                    const trans = await fetchTranslation(finalBlock);
+                    if (trans && isRunning) {
+                        connectedClients.forEach(conn => { if (conn.open) conn.send(trans); });
                     }
+                    forceCut = false; // Reset pojistky
+                } 
+                // Pojistka proti dlouhému textu: Pokud věta přesáhne 8 slov, natvrdo ji utneme
+                else if (interimBlock.trim().split(' ').length > 8 && !forceCut) {
+                    forceCut = true;
+                    recognition.stop(); 
                 }
             };
             
-            recognition.onend = () => { if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 200); };
+            recognition.onend = () => { if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 400); };
             recognition.start();
         }
     </script>

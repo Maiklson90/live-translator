@@ -2,7 +2,7 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>HLAVNÍ VYSÍLAČ - LIVE</title>
+    <title>HLAVNÍ VYSÍLAČ - PRO STREAMERKY</title>
     <style>
         body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
         button { padding: 15px 30px; font-size: 18px; cursor: pointer; border: none; font-weight: bold; border-radius: 5px; margin-top: 15px; transition: background 0.2s ease; }
@@ -17,8 +17,8 @@
 </head>
 <body>
 
-    <h1>Hlasový Vysílač (Real-time Server)</h1>
-    <p>Tento panel vysílá překlad okamžitě slovo od slova přímo do tvého OBS.</p>
+    <h1>Hlasový Vysílač (Optimalizovaný Server)</h1>
+    <p>Tento panel posílá krátké, přesné věty přizpůsobené pro rychlou řeč.</p>
     <button id="start-btn" class="btn-start">SPUSTIT MIKROFON</button>
     <div id="status">Stav: Inicializace systému...</div>
     <div id="connected-widgets">Spojeno s OBS: <span id="yes-no-status" class="status-ne">NE</span></div>
@@ -29,7 +29,6 @@
         const widgetsEl = document.getElementById('yes-no-status');
         
         let peer; let connectedClients = []; let recognition; let isRunning = false;
-        let liveTimeout;
 
         peer = new Peer('Chrimsie-Hlavni-Vysilac-Server');
 
@@ -60,7 +59,7 @@
                 isRunning = true;
                 startBtn.innerText = "ZASTAVIT MIKROFON (MUTE)";
                 startBtn.className = "btn-stop";
-                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se živě přepisuje.";
+                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ!";
                 startRecording();
             } else {
                 isRunning = false;
@@ -74,29 +73,50 @@
         function startRecording() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SR(); recognition.lang = 'sk-SK'; recognition.continuous = true; 
-            recognition.interimResults = true; // Klíčové: Chytáme rozepsané věty
+            recognition.interimResults = true; 
+            
+            let silenceTimeout;
+            let isProcessing = false;
 
             recognition.onresult = async (event) => {
-                if (!isRunning) return;
+                if (!isRunning || isProcessing) return;
                 
-                let resultIndex = event.resultIndex;
-                let currentChunk = event.results[resultIndex][0].transcript.trim();
-                let isFinal = event.results[resultIndex].isFinal;
-                
-                if (!currentChunk) return;
+                let currentText = '';
+                for (let i = 0; i < event.results.length; ++i) {
+                    currentText += event.results[i][0].transcript;
+                }
+                currentText = currentText.trim();
+                if (!currentText) return;
 
-                // Malinký debounce (250ms), ať netlačíme na Google API při úplně každém písmenku
-                clearTimeout(liveTimeout);
-                liveTimeout = setTimeout(async () => {
-                    const trans = await fetchTranslation(currentChunk);
-                    if (trans && isRunning) {
-                        const packet = JSON.stringify({ text: trans, isFinal: isFinal });
-                        connectedClients.forEach(conn => { if (conn.open) conn.send(packet); });
-                    }
-                }, 250);
+                clearTimeout(silenceTimeout);
+                let words = currentText.split(/\s+/);
+                
+                // 1. POJISTKA: Pokud text přesáhne 10 slov, pošli ho hned
+                if (words.length >= 10) {
+                    sendTextAndReset(currentText);
+                } else {
+                    // 2. POJISTKA: Micro-pauza 750 milisekund (necelá vteřina ticha)
+                    silenceTimeout = setTimeout(() => {
+                        sendTextAndReset(currentText);
+                    }, 750);
+                }
             };
+
+            async function sendTextAndReset(text) {
+                isProcessing = true;
+                clearTimeout(silenceTimeout);
+                
+                // Resetujeme rozpoznávání, abychom vymazali vyrovnávací paměť textu
+                recognition.stop(); 
+                
+                const trans = await fetchTranslation(text);
+                if (trans && isRunning) {
+                    connectedClients.forEach(conn => { if (conn.open) conn.send(trans); });
+                }
+                isProcessing = false;
+            }
             
-            recognition.onend = () => { if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 200); };
+            recognition.onend = () => { if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 150); };
             recognition.start();
         }
     </script>

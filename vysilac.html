@@ -92,32 +92,24 @@
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SR(); recognition.lang = 'sk-SK'; recognition.continuous = true; 
             
-            // Povolíme částečné výsledky, abychom mohli hlídat délku vět
-            recognition.interimResults = true; 
-            let forceCut = false;
+            // Vypneme průběžné blikání, počkáme na ucelenou větu
+            recognition.interimResults = false; 
 
             recognition.onresult = async (event) => {
                 if (!isRunning) return;
                 let finalBlock = '';
-                let interimBlock = '';
                 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) finalBlock += event.results[i][0].transcript;
-                    else interimBlock += event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalBlock += event.results[i][0].transcript;
+                    }
                 }
                 
-                // Odeslání hotové věty
                 if (finalBlock.trim().length > 0) {
                     const trans = await fetchTranslation(finalBlock);
                     if (trans && isRunning) {
                         connectedClients.forEach(conn => { if (conn.open) conn.send(trans); });
                     }
-                    forceCut = false; // Reset pojistky
-                } 
-                // Pojistka proti dlouhému textu: Pokud věta přesáhne 8 slov, natvrdo ji utneme
-                else if (interimBlock.trim().split(' ').length > 8 && !forceCut) {
-                    forceCut = true;
-                    recognition.stop(); 
                 }
             };
             

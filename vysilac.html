@@ -2,7 +2,7 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>HLAVNÍ VYSÍLAČ</title>
+    <title>HLAVNÍ VYSÍLAČ - LIVE</title>
     <style>
         body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
         button { padding: 15px 30px; font-size: 18px; cursor: pointer; border: none; font-weight: bold; border-radius: 5px; margin-top: 15px; transition: background 0.2s ease; }
@@ -17,12 +17,10 @@
 </head>
 <body>
 
-    <h1>Hlasový Vysílač (Server)</h1>
-    <p>Tento panel vysílá překlad přímo do tvého OBS.</p>
-    <p>!! POZOR !! Mute v OBS nevypne překlad, pro soukromí musíš ztlumit mikrofon přímo ve Windows nebo zde.</p>
+    <h1>Hlasový Vysílač (Real-time Server)</h1>
+    <p>Tento panel vysílá překlad okamžitě slovo od slova přímo do tvého OBS.</p>
     <button id="start-btn" class="btn-start">SPUSTIT MIKROFON</button>
     <div id="status">Stav: Inicializace systému...</div>
-    
     <div id="connected-widgets">Spojeno s OBS: <span id="yes-no-status" class="status-ne">NE</span></div>
 
     <script>
@@ -31,6 +29,7 @@
         const widgetsEl = document.getElementById('yes-no-status');
         
         let peer; let connectedClients = []; let recognition; let isRunning = false;
+        let liveTimeout;
 
         peer = new Peer('Chrimsie-Hlavni-Vysilac-Server');
 
@@ -40,13 +39,6 @@
             connectedClients.push(conn);
             updateWidgetStatus();
             conn.on('close', () => { connectedClients = connectedClients.filter(c => c !== conn); updateWidgetStatus(); });
-        });
-
-        peer.on('error', (err) => {
-            if (err.type === 'unavailable-id') {
-                statusEl.innerText = "Chyba: Panel už máš otevřený jinde!";
-                statusEl.style.color = "red";
-            }
         });
 
         function updateWidgetStatus() {
@@ -68,13 +60,13 @@
                 isRunning = true;
                 startBtn.innerText = "ZASTAVIT MIKROFON (MUTE)";
                 startBtn.className = "btn-stop";
-                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se posílá do OBS.";
+                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Text se živě přepisuje.";
                 startRecording();
             } else {
                 isRunning = false;
                 startBtn.innerText = "SPUSTIT MIKROFON";
                 startBtn.className = "btn-start";
-                statusEl.innerText = "Stav: MIKROFON VYPNUTÝ (MUTE). Do OBS se nic neposílá.";
+                statusEl.innerText = "Stav: MIKROFON VYPNUTÝ.";
                 if (recognition) recognition.stop();
             }
         });
@@ -82,50 +74,27 @@
         function startRecording() {
             const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
             recognition = new SR(); recognition.lang = 'sk-SK'; recognition.continuous = true; 
-            recognition.interimResults = true; // Sledujeme text v reálném čase kvůli pauzám
-            
-            let silenceTimeout;
-            let isProcessing = false;
+            recognition.interimResults = true; // Klíčové: Chytáme rozepsané věty
 
             recognition.onresult = async (event) => {
-                if (!isRunning || isProcessing) return;
+                if (!isRunning) return;
                 
-                let currentText = '';
-                for (let i = 0; i < event.results.length; ++i) {
-                    currentText += event.results[i][0].transcript;
-                }
-                currentText = currentText.trim();
-                if (!currentText) return;
-
-                // Resetujeme časovač pokaždé, když promluvíš další slovo
-                clearTimeout(silenceTimeout);
-
-                let words = currentText.split(/\s+/);
+                let resultIndex = event.resultIndex;
+                let currentChunk = event.results[resultIndex][0].transcript.trim();
+                let isFinal = event.results[resultIndex].isFinal;
                 
-                // Pokud mluvíš moc dlouho v kuse (14+ slov), pošleme to hned
-                if (words.length >= 14) {
-                    sendTextAndReset(currentText);
-                } else {
-                    // Jinak počkáme 1.2 vteřiny na přirozenou pauzu v řeči
-                    silenceTimeout = setTimeout(() => {
-                        sendTextAndReset(currentText);
-                    }, 1200);
-                }
+                if (!currentChunk) return;
+
+                // Malinký debounce (250ms), ať netlačíme na Google API při úplně každém písmenku
+                clearTimeout(liveTimeout);
+                liveTimeout = setTimeout(async () => {
+                    const trans = await fetchTranslation(currentChunk);
+                    if (trans && isRunning) {
+                        const packet = JSON.stringify({ text: trans, isFinal: isFinal });
+                        connectedClients.forEach(conn => { if (conn.open) conn.send(packet); });
+                    }
+                }, 250);
             };
-
-            async function sendTextAndReset(text) {
-                isProcessing = true;
-                clearTimeout(silenceTimeout);
-                
-                // Zastavíme nahrávání, čímž donutíme Google vyčistit starou paměť textu
-                recognition.stop(); 
-                
-                const trans = await fetchTranslation(text);
-                if (trans && isRunning) {
-                    connectedClients.forEach(conn => { if (conn.open) conn.send(trans); });
-                }
-                isProcessing = false;
-            }
             
             recognition.onend = () => { if (isRunning) setTimeout(() => { try { recognition.start(); } catch(e){} }, 200); };
             recognition.start();

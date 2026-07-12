@@ -2,7 +2,7 @@
 <html lang="sk">
 <head>
     <meta charset="UTF-8">
-    <title>HLAVNÍ VYSÍLAČ - PRO STREAMERKY</title>
+    <title>HLAVNÍ VYSÍLAČ</title>
     <style>
         body { background: #111; color: white; font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }
         button { padding: 15px 30px; font-size: 18px; cursor: pointer; border: none; font-weight: bold; border-radius: 5px; margin-top: 15px; transition: background 0.2s ease; }
@@ -17,8 +17,7 @@
 </head>
 <body>
 
-    <h1>Hlasový Vysílač (Optimalizovaný Server)</h1>
-    <p>Tento panel posílá krátké, přesné věty přizpůsobené pro rychlou řeč.</p>
+    <h1>Hlasový Vysílač</h1>
     <button id="start-btn" class="btn-start">SPUSTIT MIKROFON</button>
     <div id="status">Stav: Inicializace systému...</div>
     <div id="connected-widgets">Spojeno s OBS: <span id="yes-no-status" class="status-ne">NE</span></div>
@@ -59,7 +58,7 @@
                 isRunning = true;
                 startBtn.innerText = "ZASTAVIT MIKROFON (MUTE)";
                 startBtn.className = "btn-stop";
-                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ!";
+                statusEl.innerText = "Stav: MIKROFON AKTIVNÍ! Můžeš minimalizovat prohlížeč.";
                 startRecording();
             } else {
                 isRunning = false;
